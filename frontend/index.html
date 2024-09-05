@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Find Letterboxd Fans</title>
+    <link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon" />
+    <style>
+      #results ul {
+        border-bottom: 1px solid #ccc;
+        padding-bottom: 10px;
+        margin-bottom: 10px;
+      }
+
+      #results h3 .movie-names {
+        font-weight: bold;
+      }
+    </style>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const form = document.querySelector("form");
+        const resultsDiv = document.getElementById("results");
+        const loadingMessage = document.getElementById("loading");
+        let jobId = null;
+
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+
+          const username = document.getElementById("username").value;
+
+          try {
+            const response = await fetch("/all_fans", {
+              method: "POST",
+              body: JSON.stringify({ username: username }),
+              headers: {
+                "Content-Type": "application/json",
+              },
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              jobId = data.job_id;
+              pollResults(jobId);
+              loadingMessage.style.display = "block";
+            } else {
+              console.error("Error fetching results:", response.status);
+            }
+          } catch (error) {
+            console.error("Error:", error);
+          }
+        });
+
+        async function pollResults(jobId) {
+          const maxRetries = 150;
+          let retryCount = 0;
+          const timeoutDuration = 300000; // 5 minutes in milliseconds
+
+          const startTime = Date.now();
+
+          while (retryCount < maxRetries) {
+            if (Date.now() - startTime > timeoutDuration) {
+              resultsDiv.innerHTML =
+                "<p>Error: Timeout. Results could not be fetched within 2 minutes.</p>";
+              resultsDiv.style.display = "block";
+              loadingMessage.style.display = "none";
+              break;
+            }
+
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+              const response = await fetch(`/results/${jobId}`, {
+                signal: controller.signal,
+              });
+
+              clearTimeout(timeoutId);
+
+              if (response.ok) {
+                const data = await response.json();
+                if (data.status === "finished") {
+                  resultsDiv.innerHTML = "";
+
+                  // Get all unique movie codes from the data
+                  const allMovieCodes = new Set(
+                    data.result.movies.map((movie) => movie.code)
+                  );
+
+                  // Generate all possible combinations of movie codes with length 2 and above
+                  function generateCombinations(set) {
+                    const combinations = [];
+                    const combination = [];
+
+                    function backtrack(start) {
+                      if (combination.length >= 2) {
+                        combinations.push([...combination]);
+                      }
+
+                      for (let i = start; i < set.size; i++) {
+                        combination.push(Array.from(set)[i]);
+                        backtrack(i + 1);
+                        combination.pop();
+                      }
+                    }
+
+                    backtrack(0);
+                    return combinations;
+                  }
+
+                  const allMovieCombinations =
+                    generateCombinations(allMovieCodes);
+
+                  // Iterate through all movie combinations in descending order of length
+                  allMovieCombinations
+                    .sort((a, b) => b.length - a.length)
+                    .forEach((movieCodes) => {
+                      const movieNames = movieCodes
+                        .map((movieCode) => {
+                          const movie = data.result.movies.find(
+                            (m) => m.code === movieCode
+                          );
+                          return movie ? movie.name : movieCode;
+                        })
+                        .join(", ");
+
+                      // Find fans for this combination (if any)
+                      let fansForCombination =
+                        data.result.fans[movieCodes.length]?.find((item) =>
+                          item.movies.every((code) => movieCodes.includes(code))
+                        )?.fans || [];
+
+                      const fanList = document.createElement("ul");
+                      const header = document.createElement("h3");
+
+                      let fanCountText = fansForCombination.length.toString();
+                      if (
+                        data.result.fans[movieCodes.length]?.find((item) =>
+                          item.movies.every((code) => movieCodes.includes(code))
+                        )?.more_results
+                      ) {
+                        fanCountText += "+";
+                      }
+
+                      // Create hyperlinked fan count and span for movie names
+                      const fanCountLink = document.createElement("a");
+                      fanCountLink.href = `https://letterboxd.com/search/${movieCodes
+                        .map((code) => `fan:${code}`)
+                        .join("+")}/`;
+                      fanCountLink.textContent = `${fanCountText} Fan(s) `;
+
+                      header.appendChild(fanCountLink);
+                      header.appendChild(document.createTextNode("of: "));
+
+                      const movieNamesSpan = document.createElement("span");
+                      movieNamesSpan.classList.add("movie-names");
+                      movieNamesSpan.textContent = movieNames;
+                      header.appendChild(movieNamesSpan);
+
+                      fanList.appendChild(header);
+
+                      // Display movie posters with links
+                      const posterDiv = document.createElement("div");
+                      movieCodes.forEach((movieCode) => {
+                        const movie = data.result.movies.find(
+                          (m) => m.code === movieCode
+                        );
+                        if (movie && movie.url) {
+                          const posterLink = document.createElement("a");
+                          posterLink.href = `https://letterboxd.com/film/${movieCode}/`;
+
+                          const posterImg = document.createElement("img");
+                          posterImg.src = movie.url;
+                          posterImg.alt = `${movie.name} poster`;
+                          posterImg.style.width = "100px";
+                          posterImg.style.height = "150px";
+                          posterImg.style.marginRight = "10px";
+
+                          posterLink.appendChild(posterImg);
+                          posterDiv.appendChild(posterLink);
+                        }
+                      });
+                      resultsDiv.appendChild(posterDiv);
+
+                      if (fansForCombination.length === 0) {
+                        const listItem = document.createElement("li");
+                        listItem.textContent = "None found";
+                        fanList.appendChild(listItem);
+                      } else {
+                        fansForCombination.forEach((fan) => {
+                          const listItem = document.createElement("li");
+                          const fanLink = document.createElement("a");
+                          fanLink.href = `https://letterboxd.com/${fan.username}/`;
+                          fanLink.textContent = fan.name;
+                          const profilePicture = document.createElement("img");
+                          profilePicture.src = fan.picture_link;
+                          profilePicture.alt = `${fan.name}'s profile picture`;
+                          profilePicture.style.width = "50px";
+                          profilePicture.style.height = "50px";
+                          profilePicture.style.borderRadius = "50%";
+                          listItem.appendChild(profilePicture);
+                          listItem.appendChild(fanLink);
+                          fanList.appendChild(listItem);
+                        });
+                      }
+
+                      resultsDiv.appendChild(fanList);
+                    });
+
+                  resultsDiv.style.display = "block";
+                  loadingMessage.style.display = "none";
+                  break;
+                } else {
+                  console.log("Job is not finished yet, polling again...");
+                }
+              } else {
+                console.error("Error fetching results:", response.status);
+                retryCount++;
+              }
+            } catch (error) {
+              if (error.name === "AbortError") {
+                console.error("Fetch request timed out");
+              } else {
+                console.error("Error:", error);
+              }
+              retryCount++;
+            }
+
+            if (retryCount === maxRetries) {
+              resultsDiv.innerHTML =
+                "<p>Error: Failed to fetch results after multiple retries. Please try again later.</p>";
+              resultsDiv.style.display = "block";
+              loadingMessage.style.display = "none";
+              break;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        }
+      });
+    </script>
+  </head>
+  <body cz-shortcut-listen="true">
+    <h1>Fan Search</h1>
+
+    <form method="POST" action="/all_fans">
+      <label for="username">Username:</label>
+      <input type="text" id="username" name="username" required="" />
+      <button type="submit">Search Fans</button>
+    </form>
+
+    <div id="loading" style="display: none">
+      <p>Loading results...</p>
+    </div>
+    <br />
+    <div id="results" style="display: none">
+      <h2>Search Results</h2>
+    </div>
+  </body>
+</html>

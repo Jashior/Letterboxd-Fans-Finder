@@ -1,17 +1,32 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template, request
 from rq import Queue
 from worker import conn 
 from tasks import scrape_letterboxd_favorites, scrape_letterboxd_fans, get_all_fans_of_favorites
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='frontend')
 q = Queue(connection=conn)
 
-# Route to get all fans for a user's favorites, including combinations
-@app.route('/all_fans/<username>')
-def get_all_fans(username):
+@app.route('/', methods=['GET'])  # Remove POST handling
+def index():
+    return render_template('index.html')  # No search results needed
+
+@app.route('/all_fans', methods=['POST'])
+def get_all_fans_form():
+    data = request.get_json()
+    username = data.get('username')
+    if not username:
+        return jsonify({'error': 'Username is required'}), 400
+
     job = q.enqueue(get_all_fans_of_favorites, username) 
     return jsonify({'job_id': job.id})
 
+@app.route('/all_fans/<username>')
+def get_all_fans_api(username):
+    job = q.enqueue(get_all_fans_of_favorites, username) 
+    return jsonify({'job_id': job.id})
+
+
+    
 # Route to get a user's favorite movies
 @app.route('/favorites/<username>')
 def get_favorites(username):
@@ -29,7 +44,7 @@ def get_fans(job_id):
     else:
         return jsonify({'status': job.get_status()})
 
-# Route to retrieve results of a job (favorites, fans, or combined fan data)
+# Route for retrieving results for a job (GET)
 @app.route('/results/<job_id>')
 def get_results(job_id):
     job = q.fetch_job(job_id)
