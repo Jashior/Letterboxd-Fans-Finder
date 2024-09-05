@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Build artifacts
+dist/
+build/
+.eggs/
+*.whl
+*.egg
+
+# IDE Settings
+.idea/
+.vscode/
+
+# Other
+.DS_Store
+Thumbs.db
+
+# Virtual Environment (DO NOT IGNORE)
+# venv/
+# env/
+# .venv/
+# ENV/ 
+
+# Flask (if using)
+instance/
+
+# Other
+*.sqlite
+*.db
+*.log
+*.egg-info
+*.egg
+*.so
+*.dll
+*.pyde
+*.mo
+*.pot

@@ -1,0 +1,28 @@
+OPEN WSL TERMINAL IN VS-CODE
+    OR
+Ubuntu Terminal -> cd /mnt/c/Dev/Projects/2024/lb-fan
+
+# Activate virtual environment
+source lb-fan/Scripts/activate
+Or if in terminal:
+source lb-fan/bin/activate
+
+# (1)
+# Start Redis server (if not already running)
+sudo service redis-server start
+
+# Check Redis server running
+sudo service redis-server status
+
+# (2)
+# Run worker in one terminal
+python3 worker.py
+
+# (3)
+# Run Flask app in another terminal
+python3 app.py --reload
+
+
+# http://127.0.0.1:5000/favorites/test
+# http://127.0.0.1:5000/results/3218ff83-9b03-40d5-8bad-3cb514685efb
+# http://127.0.0.1:5000/fans/test
