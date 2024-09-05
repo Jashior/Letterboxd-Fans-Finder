@@ -1,43 +1,41 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
+*.py[cod]
 
 # Build artifacts
 dist/
 build/
-.eggs/
-*.whl
-*.egg
+*.egg-info/
 
 # IDE Settings
 .idea/
 .vscode/
 
-# Other
+# System Files
 .DS_Store
 Thumbs.db
 
-# Virtual Environment (DO NOT IGNORE)
-# venv/
-# env/
-# .venv/
-# ENV/ 
+# Virtual Environment 
+venv/
+env/
+.venv/
+ENV/ 
 
 # Flask (if using)
 instance/
 
-# Other
+# Database files
+*.sqlite3
 *.sqlite
-*.db
+
+# Logs
 *.log
-*.egg-info
-*.egg
+
+# Compiled files and extensions (adjust as needed)
 *.so
 *.dll
-*.pyde
+*.pyd
+
+# Translations and other generated files
 *.mo
 *.pot
