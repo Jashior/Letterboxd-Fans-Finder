@@ -67,10 +67,6 @@ def handle_webhook():
                 # 1. Change to project directory
                 os.chdir('/home/dev/Letterboxd-Fans-Finder')
 
-                # 2. Activate the virtual environment
-                activate_script = '/home/dev/Letterboxd-Fans-Finder/venv/bin/activate'
-                subprocess.run(['source', activate_script], shell=True, check=True)
-
                 # 3. Pull the latest changes
                 subprocess.run(['git', 'pull'], check=True)
 
