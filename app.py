@@ -75,8 +75,8 @@ def handle_webhook():
                 subprocess.run(activate_command, shell=True, executable='/bin/bash', check=True)
 
                 # 5. Restart relevant services (adjust as needed)
-                subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
-                subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
+                subprocess.run(['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
+                subprocess.run(['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
 
                 return jsonify({'status': 'success'}), 200
             except subprocess.CalledProcessError as e:
