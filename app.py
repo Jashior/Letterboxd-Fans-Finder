@@ -68,7 +68,7 @@ def handle_webhook():
                 os.chdir('/home/dev/Letterboxd-Fans-Finder')
 
                 # 3. Pull the latest changes
-                subprocess.run(['git', 'pull'], check=True)
+                subprocess.run(['/usr/bin/git', 'pull'], check=True)
 
                 # 3. Activate virtual environment and install requirements
                 activate_command = f". /home/dev/Letterboxd-Fans-Finder/venv/bin/activate && pip install -r requirements.txt"
