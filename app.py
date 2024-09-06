@@ -67,19 +67,16 @@ def handle_webhook():
                 # 1. Change to project directory
                 os.chdir('/home/dev/Letterboxd-Fans-Finder')
 
-                # 2. Activate the virtual environment
-                activate_script = '/home/dev/Letterboxd-Fans-Finder/venv/bin/activate'
-                subprocess.run(['source', activate_script], shell=True, check=True)
-
-                # 3. Pull the latest changes
+                # 2. Pull the latest changes
                 subprocess.run(['git', 'pull'], check=True)
 
-                # 4. Install new requirements if requirements.txt has changed
-                subprocess.run(['pip', 'install', '-r', 'requirements.txt'], check=True)
+                # 3. Activate virtual environment and install requirements
+                activate_command = f". /home/dev/Letterboxd-Fans-Finder/venv/bin/activate && pip install -r requirements.txt"
+                subprocess.run(activate_command, shell=True, executable='/bin/bash', check=True)
 
-                # 5. Restart relevant services (adjust as needed)
-                subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
-                subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
+                # 4. Restart relevant services (adjust as needed)
+                subprocess.run(['sudo', '-n', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
+                subprocess.run(['sudo', '-n', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
 
                 return jsonify({'status': 'success'}), 200
             except subprocess.CalledProcessError as e:
