@@ -285,7 +285,7 @@ server {
 
 Payload URL: `<server ip>/webhook`
 Content type: `application/json`
-s
+
 Test
 `~$ curl -X POST -H "Content-Type: application/json" -H "X-GitHub-Event: push" -d '{"ref": "refs/heads/main"}' <sever ip>/webhook`
 
