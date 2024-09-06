@@ -249,3 +249,48 @@ Remember to keep your system and application updated regularly for security and 
 8.4. Finally, restart the Gunicorn service to apply the changes:
 
 `sudo systemctl restart letterboxd-fans-finder.service`
+
+## 9. Pulling changes and redploying automatically
+
+9.1. Allow User to trigger restart of services
+
+Add under the #User privilege section in /etc/sudoers. This configuration specifically grants the letterboxd-gunicorn user the ability to restart the letterboxd-fans-finder and letterboxd-fans-finder-worker services using systemctl without needing to provide a password. This allows the webhook script to successfully trigger service restarts upon code updates without encountering permission issues. 
+
+`letterboxd-gunicorn ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart letterboxd-fans-finder, /usr/bin/systemctl restart letterboxd-fans-finder-worker`
+
+9.2. Update `sudo nano /etc/nginx/sites-available/your_domain.conf`
+
+```
+server {
+    listen 80;
+    server_name <your_domain_name>;
+    location / {
+        proxy_pass http://unix:/home/dev/Letterboxd-Fans-Finder/letterboxd_app.sock;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /webhook {
+        proxy_pass http://unix:/home/dev/Letterboxd-Fans-Finder/letterboxd_app.sock;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Content-Type application/json;
+    }
+}
+```
+
+9.3. Enable webhooks on github project
+
+Payload URL: `<server ip>/webhook`
+Content type: `application/json`
+s
+Test
+`~$ curl -X POST -H "Content-Type: application/json" -H "X-GitHub-Event: push" -d '{"ref": "refs/heads/main"}' <sever ip>/webhook`
+
+Example response:
+
+`{"message":"Command '['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder']' died with <Signals.SIGTERM: 15>.","status":"error"}`
+
+
