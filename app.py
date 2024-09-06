@@ -1,3 +1,4 @@
+import logging
 import os
 import subprocess
 from flask import Flask, jsonify, render_template, request
@@ -60,26 +61,30 @@ def get_results(job_id):
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     if request.headers.get('X-GitHub-Event') == 'push':
-        if request.get_json()['ref'] == 'refs/heads/main': 
+        payload = request.get_json()
+        if payload and payload['ref'] == 'refs/heads/main':
             try:
                 # 1. Change to project directory
                 os.chdir('/home/dev/Letterboxd-Fans-Finder')
-
-                # 2. Pull the latest changes
-                subprocess.run(['git', 'pull'], check=True)
-
-                # 3. Install new requirements if requirements.txt has changed
-                subprocess.run(['pip', 'install', '-r', 'requirements.txt'], check=True)
-
-                # 4. Restart relevant services (adjust as needed)
-                subprocess.run(['systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
-                subprocess.run(['systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
-
+                
+                # Use absolute path for git
+                subprocess.run(['/usr/bin/git', 'pull'], check=True)
+                subprocess.run(['/usr/bin/pip', 'install', '-r', 'requirements.txt'], check=True)
+                subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
+                subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
+                
                 return jsonify({'status': 'success'}), 200
             except subprocess.CalledProcessError as e:
+                logging.error(f"Subprocess error: {e}")
                 return jsonify({'status': 'error', 'message': str(e)}), 500
+            except Exception as e:
+                logging.error(f"General error: {e}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+        else:
+            return jsonify({'status': 'ignored'}), 200
     else:
         return jsonify({'status': 'ignored'}), 200
+
     
 if __name__ == '__main__':
     app.run(debug=True)
