@@ -50,7 +50,7 @@
         });
 
         async function pollResults(jobId) {
-          const maxRetries = 150;
+          const maxRetries = 1000;
           let retryCount = 0;
           const timeoutDuration = 300000; // 5 minutes in milliseconds
 
@@ -232,14 +232,14 @@
               break;
             }
 
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+            await new Promise((resolve) => setTimeout(resolve, 100));
           }
         }
       });
     </script>
   </head>
   <body cz-shortcut-listen="true">
-    <h1>Search for fans</h1>
+    <h1>Search for fans:</h1>
 
     <form method="POST" action="/all_fans">
       <label for="username">Username:</label>
