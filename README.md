@@ -250,6 +250,7 @@ Remember to keep your system and application updated regularly for security and 
 8.4. Finally, restart the Gunicorn service to apply the changes:
 
 `sudo systemctl daemon-reload`
+
 `sudo systemctl restart letterboxd-fans-finder.service`
 
 ## 9. Pulling changes and redploying automatically
