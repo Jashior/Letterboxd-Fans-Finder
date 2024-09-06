@@ -57,7 +57,7 @@ def get_results(job_id):
     else:
         return jsonify({'status': job.get_status()})
     
-# Webhook
+#webhook
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     if request.headers.get('X-GitHub-Event') == 'push':
@@ -66,6 +66,11 @@ def handle_webhook():
             try:
                 # 1. Change to project directory
                 os.chdir('/home/dev/Letterboxd-Fans-Finder')
+
+                # 2. Check if Git is installed
+                which_git = subprocess.run(['which', 'git'], capture_output=True, text=True)
+                if which_git.returncode != 0:
+                    raise FileNotFoundError("Git is not installed or not in PATH")
 
                 # 2. Pull the latest changes
                 subprocess.run(['git', 'pull'], check=True)
@@ -79,12 +84,14 @@ def handle_webhook():
                 subprocess.run(['sudo', '-n', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
 
                 return jsonify({'status': 'success'}), 200
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Subprocess error: {e}")
+
+            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                logging.error(f"Error during deployment: {e}")
                 return jsonify({'status': 'error', 'message': str(e)}), 500
+
             except Exception as e:
-                logging.error(f"General error: {e}")
-                return jsonify({'status': 'error', 'message': str(e)}), 500
+                logging.error(f"Unexpected error: {e}")
+                return jsonify({'status': 'error', 'message': 'An unexpected error occurred'}), 500
         else:
             return jsonify({'status': 'ignored'}), 200
     else:
