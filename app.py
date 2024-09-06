@@ -57,7 +57,7 @@ def get_results(job_id):
     else:
         return jsonify({'status': job.get_status()})
     
-# Handling webhook
+# Webhook
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     if request.headers.get('X-GitHub-Event') == 'push':
@@ -66,13 +66,21 @@ def handle_webhook():
             try:
                 # 1. Change to project directory
                 os.chdir('/home/dev/Letterboxd-Fans-Finder')
-                
-                # Use absolute path for git
-                subprocess.run(['/usr/bin/git', 'pull'], check=True)
-                subprocess.run(['/usr/bin/pip', 'install', '-r', 'requirements.txt'], check=True)
+
+                # 2. Activate the virtual environment
+                activate_script = '/home/dev/Letterboxd-Fans-Finder/venv/bin/activate'
+                subprocess.run(['source', activate_script], shell=True, check=True)
+
+                # 3. Pull the latest changes
+                subprocess.run(['git', 'pull'], check=True)
+
+                # 4. Install new requirements if requirements.txt has changed
+                subprocess.run(['pip', 'install', '-r', 'requirements.txt'], check=True)
+
+                # 5. Restart relevant services (adjust as needed)
                 subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
                 subprocess.run(['sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
-                
+
                 return jsonify({'status': 'success'}), 200
             except subprocess.CalledProcessError as e:
                 logging.error(f"Subprocess error: {e}")
