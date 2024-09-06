@@ -67,26 +67,42 @@ def handle_webhook():
                 # 1. Change to project directory
                 os.chdir('/home/dev/Letterboxd-Fans-Finder')
 
-                # 2. Check if Git is installed
-                which_git = subprocess.run(['which', 'git'], capture_output=True, text=True)
-                if which_git.returncode != 0:
-                    raise FileNotFoundError("Git is not installed or not in PATH")
-
                 # 2. Pull the latest changes
+                logging.info("Pulling latest changes...")
                 subprocess.run(['git', 'pull'], check=True)
 
                 # 3. Activate virtual environment and install requirements
-                activate_command = f". /home/dev/Letterboxd-Fans-Finder/venv/bin/activate && pip install -r requirements.txt"
+                venv_dir = '/home/dev/Letterboxd-Fans-Finder/venv' 
+                activate_command = f"source {venv_dir}/bin/activate && pip install -r requirements.txt"
+                logging.info("Activating virtual environment and installing requirements...")
                 subprocess.run(activate_command, shell=True, executable='/bin/bash', check=True)
 
                 # 4. Restart relevant services (adjust as needed)
-                subprocess.run(['sudo', '-n', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder'], check=True)
-                subprocess.run(['sudo', '-n', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder-worker'], check=True)
+                for service_name in ['letterboxd-fans-finder', 'letterboxd-fans-finder-worker']:
+                    logging.info(f"Restarting service: {service_name}")
+                    subprocess.run(['sudo', '-n', '/usr/bin/systemctl', 'restart', service_name], check=True)
 
                 return jsonify({'status': 'success'}), 200
 
-            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            except subprocess.CalledProcessError as e:
                 logging.error(f"Error during deployment: {e}")
+                if e.returncode == 127:  # Command not found
+                    return jsonify({'status': 'error', 'message': f"Command not found: {e.cmd}"}), 500
+                elif e.returncode == 1: # General error from subprocess
+                    # Log stderr output for more details if available
+                    if e.stderr:
+                        logging.error(f"Stderr output: {e.stderr}") 
+                    return jsonify({'status': 'error', 'message': str(e)}), 500
+                else:
+                    return jsonify({'status': 'error', 'message': str(e)}), 500
+
+            except FileNotFoundError as e:
+                logging.error(f"File not found error: {e}")
+                return jsonify({'status': 'error', 'message': str(e)}), 500
+
+            except OSError as e:
+                # Catch potential permission errors or other OS-related issues
+                logging.error(f"OSError: {e}")
                 return jsonify({'status': 'error', 'message': str(e)}), 500
 
             except Exception as e:
