@@ -234,4 +234,18 @@ sudo certbot --nginx -d your_domain_name
 
 Remember to keep your system and application updated regularly for security and performance improvements.
 
+## 8. Pulling changes manually
 
+8.1. If you encounter ownership issues on Ubuntu (where Git complains about "dubious ownership"), you can configure Git to trust the directory by running:
+
+`git config --global --add safe.directory /home/dev/Letterboxd-Fans-Finder`
+
+8.2. `git pull`
+
+8.3. If the requirements.txt file has been updated (meaning new dependencies have been added or existing ones modified), install them within your virtual environment:
+
+`pip install -r requirements.txt`
+
+8.4. Finally, restart the Gunicorn service to apply the changes:
+
+`sudo systemctl restart letterboxd-fans-finder.service`
