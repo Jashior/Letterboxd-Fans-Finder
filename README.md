@@ -228,6 +228,9 @@ sudo certbot --nginx -d your_domain_name
 - Check application logs: `sudo journalctl -u letterboxd-fans-finder.service`
 - Check worker logs: `sudo journalctl -u letterboxd-fans-finder-worker.service`
 - Check Nginx logs: `sudo tail -f /var/log/nginx/error.log`
+- Check running services: `sudo systemctl list-units --type=service --state=running`
+- Check status of services: `sudo systemctl status <service_name>` 
+
 
 Remember to keep your system and application updated regularly for security and performance improvements.
 
