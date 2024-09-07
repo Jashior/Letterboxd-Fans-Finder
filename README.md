@@ -300,11 +300,13 @@ Example response:
 9.4. Ensure user keeps priviledges even with new files & folders within the repo
 
 ```
-# Set the repository path (temp variable)
-REPO_PATH="/home/dev/Letterboxd-Fans-Finder"
+# Set these variables according to your setup
+REPO_PATH="/home/dev/Letterboxd-Fans-Finder" # Replace with your repo path
+USER="letterboxd-gunicorn"  # Replace with your user
+GROUP="www-data" # Replace with your group
 
 # Update ownership
-sudo chown -R letterboxd-gunicorn:www-data $REPO_PATH
+sudo chown -R $USER:$GROUP $REPO_PATH
 
 # Set permissions
 sudo chmod -R u+rwX,g+rwX,o-rwx $REPO_PATH
@@ -314,10 +316,10 @@ sudo find $REPO_PATH -type d -exec chmod g+s {} +
 
 # Set up a post-merge hook to fix permissions after pulls
 POST_MERGE_HOOK="$REPO_PATH/.git/hooks/post-merge"
-echo '#!/bin/bash' | sudo tee $POST_MERGE_HOOK
-echo "chown -R letterboxd-gunicorn:www-data $REPO_PATH" | sudo tee -a $POST_MERGE_HOOK
-echo "chmod -R u+rwX,g+rwX,o-rwx $REPO_PATH" | sudo tee -a $POST_MERGE_HOOK
-echo "find $REPO_PATH -type d -exec chmod g+s {} +" | sudo tee -a $POST_MERGE_HOOK
+echo '#!/bin/bash' | sudo tee $POST_MERGE_HOOK > /dev/null
+echo "$(realpath $0)" | sudo tee -a $POST_MERGE_HOOK > /dev/null
 sudo chmod +x $POST_MERGE_HOOK
+
+echo "Permissions have been updated. This script will run automatically after each git pull."
 ```
 
