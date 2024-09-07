@@ -297,4 +297,27 @@ Example response:
 
 `{"message":"Command '['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'letterboxd-fans-finder']' died with <Signals.SIGTERM: 15>.","status":"error"}`
 
+9.4. Ensure user keeps priviledges even with new files & folders within the repo
+
+```
+# Set the repository path (temp variable)
+REPO_PATH="/home/dev/Letterboxd-Fans-Finder"
+
+# Update ownership
+sudo chown -R letterboxd-gunicorn:www-data $REPO_PATH
+
+# Set permissions
+sudo chmod -R u+rwX,g+rwX,o-rwx $REPO_PATH
+
+# Ensure new files inherit group ownership
+sudo find $REPO_PATH -type d -exec chmod g+s {} +
+
+# Set up a post-merge hook to fix permissions after pulls
+POST_MERGE_HOOK="$REPO_PATH/.git/hooks/post-merge"
+echo '#!/bin/bash' | sudo tee $POST_MERGE_HOOK
+echo "chown -R letterboxd-gunicorn:www-data $REPO_PATH" | sudo tee -a $POST_MERGE_HOOK
+echo "chmod -R u+rwX,g+rwX,o-rwx $REPO_PATH" | sudo tee -a $POST_MERGE_HOOK
+echo "find $REPO_PATH -type d -exec chmod g+s {} +" | sudo tee -a $POST_MERGE_HOOK
+sudo chmod +x $POST_MERGE_HOOK
+```
 
