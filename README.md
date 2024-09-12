@@ -231,7 +231,7 @@ sudo certbot --nginx -d your_domain_name
 - Check running services: `sudo systemctl list-units --type=service --state=running`
 - Check status of services: `sudo systemctl status <service_name>` 
 - Logs last 100 no pager: `sudo journalctl -u letterboxd-fans-finder.service -o cat --no-pager | tail -n 100`
-
+- Logging recent worker example: `sudo journalctl -u letterboxd-fans-finder-worker.service -o cat --no-pager | tail -n 100`
 
 Remember to keep your system and application updated regularly for security and performance improvements.
 
@@ -319,7 +319,6 @@ POST_MERGE_HOOK="$REPO_PATH/.git/hooks/post-merge"
 echo '#!/bin/bash' | sudo tee $POST_MERGE_HOOK > /dev/null
 echo "$(realpath $0)" | sudo tee -a $POST_MERGE_HOOK > /dev/null
 sudo chmod +x $POST_MERGE_HOOK
-
 echo "Permissions have been updated. This script will run automatically after each git pull."
 ```
 
