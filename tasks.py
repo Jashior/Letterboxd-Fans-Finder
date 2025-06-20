@@ -8,8 +8,8 @@ import itertools
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - TASKS.PY - %(message)s')
 
 # --- Rate Limiting and Retry Logic ---
-REQUESTS_PER_MINUTE_NORMAL = 30  # e.g., 1 request every 2 seconds for general pages
-REQUESTS_PER_MINUTE_AJAX = 10    # e.g., 1 request every 10 seconds for AJAX calls (VERY conservative)
+REQUESTS_PER_MINUTE_NORMAL = 60   # 1 request per second
+REQUESTS_PER_MINUTE_AJAX = 20     # 1 request every 3 seconds
 SECONDS_PER_MINUTE = 60
 last_request_time_normal = 0
 last_request_time_ajax = 0
