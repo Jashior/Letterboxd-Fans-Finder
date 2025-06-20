@@ -2,7 +2,7 @@
 
 https://letterboxd.zanaris.dev/
 
-![AuPwQXt](https://github.com/user-attachments/assets/b0a0c9b9-6296-4eac-9598-8287d8b0a578)
+![AuPwQXt](https://i.imgur.com/HP0zmJ3.png)
 
 ## Introduction
 This Flask project allows you to find other Letterboxd users who share similar movie tastes based on your favorite films.
