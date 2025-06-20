@@ -2,66 +2,575 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Letterboxd Fans Finder</title>
     <link rel="shortcut icon" href="/static/favicon.ico" type="image/x-icon" />
     <style>
-      #results ul {
-        border-bottom: 1px solid #ccc;
-        padding-bottom: 10px;
-        margin-bottom: 10px;
+      :root {
+        /* Light theme variables */
+        --bg-primary: #fafafa;
+        --bg-secondary: #fff;
+        --bg-tertiary: #f9fafb;
+        --text-primary: #333;
+        --text-secondary: #666;
+        --text-tertiary: #6b7280;
+        --text-muted: #9ca3af;
+        --border-color: #e1e1e1;
+        --border-light: #e5e7eb;
+        --border-medium: #d1d5db;
+        --accent-color: #3b82f6;
+        --accent-bg: #eff6ff;
+        --accent-border: #dbeafe;
+        --accent-hover: #dbeafe;
+        --accent-hover-border: #93c5fd;
+        --button-bg: #374151;
+        --button-hover: #1f2937;
+        --button-active: #111827;
+        --error-bg: #fef2f2;
+        --error-border: #fecaca;
+        --error-text: #dc2626;
+        --loading-border: #e5e7eb;
+        --loading-color: #374151;
+        --hover-bg: #f9fafb;
+        --film-separator: #d1d5db;
       }
 
-      #results h3 .movie-names {
-        font-weight: bold;
+      [data-theme="dark"] {
+        /* Dark theme variables */
+        --bg-primary: #0f172a;
+        --bg-secondary: #1e293b;
+        --bg-tertiary: #334155;
+        --text-primary: #f1f5f9;
+        --text-secondary: #cbd5e1;
+        --text-tertiary: #94a3b8;
+        --text-muted: #64748b;
+        --border-color: #334155;
+        --border-light: #475569;
+        --border-medium: #64748b;
+        --accent-color: #60a5fa;
+        --accent-bg: #1e3a8a;
+        --accent-border: #3b82f6;
+        --accent-hover: #3b82f6;
+        --accent-hover-border: #60a5fa;
+        --button-bg: #475569;
+        --button-hover: #64748b;
+        --button-active: #94a3b8;
+        --error-bg: #7f1d1d;
+        --error-border: #dc2626;
+        --error-text: #fca5a5;
+        --loading-border: #475569;
+        --loading-color: #94a3b8;
+        --hover-bg: #475569;
+        --film-separator: #60a5fa;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        line-height: 1.5;
+        font-size: 14px;
+        transition: background-color 0.3s ease, color 0.3s ease;
+      }
+
+      .container {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+      }
+
+      .header {
+        margin-bottom: 2rem;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .header-content h1 {
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+      }
+
+      .header-content p {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .theme-toggle {
+        background: var(--button-bg);
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .theme-toggle:hover {
+        background: var(--button-hover);
+      }
+
+      .search-section {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-medium);
+        border-radius: 6px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      }
+
+      .form-group {
+        margin-bottom: 1rem;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 0.375rem;
+        font-weight: 500;
+        color: var(--text-primary);
+        font-size: 0.875rem;
+      }
+
+      #username {
+        width: 100%;
+        padding: 0.625rem 0.75rem;
+        font-size: 0.875rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-medium);
+        border-radius: 4px;
+        color: var(--text-primary);
+        transition: border-color 0.15s ease;
+        font-family: inherit;
+      }
+
+      #username:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      }
+
+      #username::placeholder {
+        color: var(--text-muted);
+      }
+
+      .search-btn {
+        background: var(--button-bg);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 0.625rem 1rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+        font-family: inherit;
+      }
+
+      .search-btn:hover {
+        background: var(--button-hover);
+      }
+
+      .search-btn:active {
+        background: var(--button-active);
+      }
+
+      .loading {
+        text-align: center;
+        padding: 3rem 1rem;
+        display: none;
+        color: var(--text-tertiary);
+      }
+
+      .loading-indicator {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid var(--loading-border);
+        border-left: 2px solid var(--loading-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: 0.5rem;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .results {
+        display: none;
+      }
+
+      .results-header {
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid var(--border-light);
+      }
+
+      .results-header h2 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--text-primary);
+      }
+
+      .movie-combination {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-light);
+        border-radius: 6px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+      }
+
+      .combination-header {
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-light);
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      .fan-count {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+      }
+
+      .fan-count a {
+        color: var(--accent-color);
+        text-decoration: none;
+        padding: 0.25rem 0.5rem;
+        background: var(--accent-bg);
+        border-radius: 3px;
+        border: 1px solid var(--accent-border);
+        transition: all 0.15s ease;
+      }
+
+      .fan-count a:hover {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover-border);
+      }
+
+      .movie-names {
+        font-weight: 500;
+        color: var(--text-primary);
+        font-size: 0.875rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      .film-title {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.5rem;
+        background: var(--bg-secondary);
+        border: 1px solid var(--film-separator);
+        border-radius: 4px;
+        font-size: 0.8rem;
+        color: var(--text-primary);
+        transition: all 0.15s ease;
+      }
+
+      .film-title:hover {
+        border-color: var(--accent-color);
+        background: var(--accent-bg);
+      }
+
+      .movie-posters {
+        padding: 1rem;
+        display: flex;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        border-bottom: 1px solid var(--border-light);
+      }
+
+      .poster-link {
+        display: block;
+        border-radius: 4px;
+        overflow: hidden;
+        border: 1px solid var(--border-light);
+        transition: border-color 0.15s ease;
+      }
+
+      .poster-link:hover {
+        border-color: var(--border-medium);
+      }
+
+      .poster-img {
+        width: 60px;
+        height: 90px;
+        object-fit: cover;
+        display: block;
+      }
+
+      .fans-section {
+        padding: 1rem;
+      }
+
+      .fans-list {
+        list-style: none;
+        display: grid;
+        gap: 0.5rem;
+      }
+
+      .fan-item {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.5rem;
+        border-radius: 4px;
+        transition: background-color 0.15s ease;
+      }
+
+      .fan-item:hover {
+        background: var(--hover-bg);
+      }
+
+      .fan-avatar {
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        object-fit: cover;
+        border: 1px solid var(--border-light);
+      }
+
+      .fan-link {
+        color: var(--accent-color);
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.875rem;
+        transition: color 0.15s ease;
+      }
+
+      .fan-link:hover {
+        color: var(--accent-hover-border);
+      }
+
+      .fan-link:visited {
+        color: #8b5cf6;
+      }
+
+      [data-theme="dark"] .fan-link:visited {
+        color: #c084fc;
+      }
+
+      .no-fans {
+        text-align: center;
+        padding: 2rem 1rem;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+        font-style: italic;
+      }
+
+      .error-message {
+        background: var(--error-bg);
+        border: 1px solid var(--error-border);
+        color: var(--error-text);
+        padding: 0.75rem 1rem;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        margin: 1rem 0;
+      }
+
+      .stats {
+        font-size: 0.75rem;
+        color: var(--text-tertiary);
+        margin-top: 0.25rem;
+      }
+
+      @media (max-width: 768px) {
+        .container {
+          padding: 1rem 0.75rem;
+        }
+
+        .movie-posters {
+          justify-content: center;
+        }
+
+        .combination-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.75rem;
+        }
+
+        .fans-list {
+          grid-template-columns: 1fr;
+        }
+
+        .header {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .movie-names {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 0.25rem;
+        }
+      }
+
+      @media (min-width: 768px) {
+        .fans-list {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .fans-list {
+          grid-template-columns: repeat(3, 1fr);
+        }
       }
     </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="header-content">
+          <h1>Letterboxd Fans Finder</h1>
+          <p>Find users who share combinations of your 4 favorite films</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle">
+          <span id="themeIcon">🌙</span>
+          <span id="themeText">Dark</span>
+        </button>
+      </div>
+
+      <div class="search-section">
+        <form id="searchForm">
+          <div class="form-group">
+            <label for="username">Username</label>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              placeholder="letterboxd-username"
+              required
+            />
+          </div>
+          <button type="submit" class="search-btn">Analyze</button>
+        </form>
+      </div>
+
+      <div id="loading" class="loading">
+        <div class="loading-indicator"></div>
+        Processing request...
+      </div>
+
+      <div id="results" class="results">
+        <div class="results-header">
+          <h2>Analysis Results</h2>
+          <div class="stats" id="resultsStats"></div>
+        </div>
+        <div id="resultsContent"></div>
+      </div>
+    </div>
+
     <script>
-      document.addEventListener('DOMContentLoaded', () => {
-        const form = document.querySelector('form');
-        const resultsDiv = document.getElementById('results');
-        const loadingMessage = document.getElementById('loading');
+      document.addEventListener("DOMContentLoaded", () => {
+        const form = document.getElementById("searchForm");
+        const resultsDiv = document.getElementById("results");
+        const resultsContent = document.getElementById("resultsContent");
+        const resultsStats = document.getElementById("resultsStats");
+        const loadingDiv = document.getElementById("loading");
+        const themeToggle = document.getElementById("themeToggle");
+        const themeIcon = document.getElementById("themeIcon");
+        const themeText = document.getElementById("themeText");
         let jobId = null;
 
-        form.addEventListener('submit', async (event) => {
+        // Theme toggle functionality
+        const savedTheme = localStorage.getItem("theme") || "light";
+        document.documentElement.setAttribute("data-theme", savedTheme);
+        updateThemeButton(savedTheme);
+
+        themeToggle.addEventListener("click", () => {
+          const currentTheme =
+            document.documentElement.getAttribute("data-theme");
+          const newTheme = currentTheme === "dark" ? "light" : "dark";
+
+          document.documentElement.setAttribute("data-theme", newTheme);
+          localStorage.setItem("theme", newTheme);
+          updateThemeButton(newTheme);
+        });
+
+        function updateThemeButton(theme) {
+          if (theme === "dark") {
+            themeIcon.textContent = "☀️";
+            themeText.textContent = "Light";
+          } else {
+            themeIcon.textContent = "🌙";
+            themeText.textContent = "Dark";
+          }
+        }
+
+        form.addEventListener("submit", async (event) => {
           event.preventDefault();
 
-          const username = document.getElementById('username').value;
+          const username = document.getElementById("username").value.trim();
+          if (!username) return;
 
           try {
-            const response = await fetch('/all_fans', {
-              method: 'POST',
+            const response = await fetch("/all_fans", {
+              method: "POST",
               body: JSON.stringify({ username: username }),
               headers: {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
               },
             });
 
             if (response.ok) {
               const data = await response.json();
               jobId = data.job_id;
+              loadingDiv.style.display = "block";
+              resultsDiv.style.display = "none";
               pollResults(jobId);
-              loadingMessage.style.display = 'block';
             } else {
-              console.error('Error fetching results:', response.status);
+              showError(
+                "Request failed. Please verify the username and try again."
+              );
             }
           } catch (error) {
-            console.error('Error:', error);
+            showError("Network error. Please check your connection.");
           }
         });
 
         async function pollResults(jobId) {
           const maxRetries = 1000;
           let retryCount = 0;
-          const timeoutDuration = 300000; // 5 minutes in milliseconds
-
+          const timeoutDuration = 300000;
           const startTime = Date.now();
 
           while (retryCount < maxRetries) {
             if (Date.now() - startTime > timeoutDuration) {
-              resultsDiv.innerHTML =
-                '<p>Error: Timeout. Results could not be fetched within 2 minutes.</p>';
-              resultsDiv.style.display = 'block';
-              loadingMessage.style.display = 'none';
+              showError(
+                "Request timeout. Analysis could not be completed within 5 minutes."
+              );
               break;
             }
 
@@ -77,182 +586,210 @@
 
               if (response.ok) {
                 const data = await response.json();
-                if (data.status === 'finished') {
-                  resultsDiv.innerHTML = '';
-
-                  // Get all unique movie codes from the data
-                  const allMovieCodes = new Set(
-                    data.result.movies.map((movie) => movie.code)
-                  );
-
-                  // Generate all possible combinations of movie codes with length 2 and above
-                  function generateCombinations(set) {
-                    const combinations = [];
-                    const combination = [];
-
-                    function backtrack(start) {
-                      if (combination.length >= 2) {
-                        combinations.push([...combination]);
-                      }
-
-                      for (let i = start; i < set.size; i++) {
-                        combination.push(Array.from(set)[i]);
-                        backtrack(i + 1);
-                        combination.pop();
-                      }
-                    }
-
-                    backtrack(0);
-                    return combinations;
-                  }
-
-                  const allMovieCombinations =
-                    generateCombinations(allMovieCodes);
-
-                  // Iterate through all movie combinations in descending order of length
-                  allMovieCombinations
-                    .sort((a, b) => b.length - a.length)
-                    .forEach((movieCodes) => {
-                      const movieNames = movieCodes
-                        .map((movieCode) => {
-                          const movie = data.result.movies.find(
-                            (m) => m.code === movieCode
-                          );
-                          return movie ? movie.name : movieCode;
-                        })
-                        .join(', ');
-
-                      // Find fans for this combination (if any)
-                      let fansForCombination =
-                        data.result.fans[movieCodes.length]?.find((item) =>
-                          item.movies.every((code) => movieCodes.includes(code))
-                        )?.fans || [];
-
-                      const fanList = document.createElement('ul');
-                      const header = document.createElement('h3');
-
-                      let fanCountText = fansForCombination.length.toString();
-                      if (
-                        data.result.fans[movieCodes.length]?.find((item) =>
-                          item.movies.every((code) => movieCodes.includes(code))
-                        )?.more_results
-                      ) {
-                        fanCountText += '+';
-                      }
-
-                      // Create hyperlinked fan count and span for movie names
-                      const fanCountLink = document.createElement('a');
-                      fanCountLink.href = `https://letterboxd.com/search/${movieCodes
-                        .map((code) => `fan:${code}`)
-                        .join('+')}/`;
-                      fanCountLink.textContent = `${fanCountText} Fan(s) `;
-
-                      header.appendChild(fanCountLink);
-                      header.appendChild(document.createTextNode('of: '));
-
-                      const movieNamesSpan = document.createElement('span');
-                      movieNamesSpan.classList.add('movie-names');
-                      movieNamesSpan.textContent = movieNames;
-                      header.appendChild(movieNamesSpan);
-
-                      fanList.appendChild(header);
-
-                      // Display movie posters with links
-                      const posterDiv = document.createElement('div');
-                      movieCodes.forEach((movieCode) => {
-                        const movie = data.result.movies.find(
-                          (m) => m.code === movieCode
-                        );
-                        if (movie && movie.url) {
-                          const posterLink = document.createElement('a');
-                          posterLink.href = `https://letterboxd.com/film/${movieCode}/`;
-
-                          const posterImg = document.createElement('img');
-                          posterImg.src = movie.url;
-                          posterImg.alt = `${movie.name} poster`;
-                          posterImg.style.width = '100px';
-                          posterImg.style.height = '150px';
-                          posterImg.style.marginRight = '10px';
-
-                          posterLink.appendChild(posterImg);
-                          posterDiv.appendChild(posterLink);
-                        }
-                      });
-                      resultsDiv.appendChild(posterDiv);
-
-                      if (fansForCombination.length === 0) {
-                        const listItem = document.createElement('li');
-                        listItem.textContent = 'None found';
-                        fanList.appendChild(listItem);
-                      } else {
-                        fansForCombination.forEach((fan) => {
-                          const listItem = document.createElement('li');
-                          const fanLink = document.createElement('a');
-                          fanLink.href = `https://letterboxd.com/${fan.username}/`;
-                          fanLink.textContent = fan.name;
-                          const profilePicture = document.createElement('img');
-                          profilePicture.src = fan.picture_link;
-                          profilePicture.alt = `${fan.name}'s profile picture`;
-                          profilePicture.style.width = '50px';
-                          profilePicture.style.height = '50px';
-                          profilePicture.style.borderRadius = '50%';
-                          listItem.appendChild(profilePicture);
-                          listItem.appendChild(fanLink);
-                          fanList.appendChild(listItem);
-                        });
-                      }
-
-                      resultsDiv.appendChild(fanList);
-                    });
-
-                  resultsDiv.style.display = 'block';
-                  loadingMessage.style.display = 'none';
+                if (data.status === "finished") {
+                  displayResults(data.result);
                   break;
-                } else {
-                  console.log('Job is not finished yet, polling again...');
                 }
               } else {
-                console.error('Error fetching results:', response.status);
                 retryCount++;
               }
             } catch (error) {
-              if (error.name === 'AbortError') {
-                console.error('Fetch request timed out');
-              } else {
-                console.error('Error:', error);
+              if (error.name !== "AbortError") {
+                retryCount++;
               }
-              retryCount++;
             }
 
             if (retryCount === maxRetries) {
-              resultsDiv.innerHTML =
-                '<p>Error: Failed to fetch results after multiple retries. Please try again later.</p>';
-              resultsDiv.style.display = 'block';
-              loadingMessage.style.display = 'none';
+              showError(
+                "Analysis failed after multiple attempts. Please try again later."
+              );
               break;
             }
 
             await new Promise((resolve) => setTimeout(resolve, 100));
           }
         }
+
+        function displayResults(result) {
+          loadingDiv.style.display = "none";
+          resultsContent.innerHTML = "";
+
+          if (!result.movies || result.movies.length === 0) {
+            showError("No movie data found for this user.");
+            return;
+          }
+
+          // Display stats
+          const totalMovies = result.movies.length;
+          resultsStats.textContent = `${totalMovies} movies analyzed`;
+
+          const allMovieCodes = new Set(
+            result.movies.map((movie) => movie.code)
+          );
+          const allMovieCombinations = generateCombinations(allMovieCodes);
+
+          allMovieCombinations
+            .sort((a, b) => b.length - a.length)
+            .forEach((movieCodes) => {
+              const movieData = movieCodes.map((movieCode) => {
+                const movie = result.movies.find((m) => m.code === movieCode);
+                return movie
+                  ? { name: movie.name, code: movieCode }
+                  : { name: movieCode, code: movieCode };
+              });
+
+              let fansForCombination =
+                result.fans[movieCodes.length]?.find((item) =>
+                  item.movies.every((code) => movieCodes.includes(code))
+                )?.fans || [];
+
+              const hasMoreResults = result.fans[movieCodes.length]?.find(
+                (item) => item.movies.every((code) => movieCodes.includes(code))
+              )?.more_results;
+
+              const combinationDiv = createCombinationElement(
+                movieCodes,
+                movieData,
+                fansForCombination,
+                hasMoreResults,
+                result.movies
+              );
+
+              resultsContent.appendChild(combinationDiv);
+            });
+
+          resultsDiv.style.display = "block";
+        }
+
+        function createCombinationElement(
+          movieCodes,
+          movieData,
+          fans,
+          hasMoreResults,
+          allMovies
+        ) {
+          const combinationDiv = document.createElement("div");
+          combinationDiv.className = "movie-combination";
+
+          // Header
+          const headerDiv = document.createElement("div");
+          headerDiv.className = "combination-header";
+
+          const fanCountDiv = document.createElement("div");
+          fanCountDiv.className = "fan-count";
+
+          const fanCountText = fans.length + (hasMoreResults ? "+" : "");
+          const fanCountLink = document.createElement("a");
+          fanCountLink.href = `https://letterboxd.com/search/${movieCodes
+            .map((code) => `fan:${code}`)
+            .join("+")}/`;
+          fanCountLink.textContent = `${fanCountText} users`;
+
+          fanCountDiv.appendChild(fanCountLink);
+
+          const movieNamesDiv = document.createElement("div");
+          movieNamesDiv.className = "movie-names";
+
+          // Create individual film title elements
+          movieData.forEach((movie, index) => {
+            const filmTitle = document.createElement("span");
+            filmTitle.className = "film-title";
+            filmTitle.textContent = movie.name;
+            movieNamesDiv.appendChild(filmTitle);
+          });
+
+          headerDiv.appendChild(fanCountDiv);
+          headerDiv.appendChild(movieNamesDiv);
+
+          // Movie posters
+          const postersDiv = document.createElement("div");
+          postersDiv.className = "movie-posters";
+
+          movieCodes.forEach((movieCode) => {
+            const movie = allMovies.find((m) => m.code === movieCode);
+            if (movie && movie.url) {
+              const posterLink = document.createElement("a");
+              posterLink.className = "poster-link";
+              posterLink.href = `https://letterboxd.com/film/${movieCode}/`;
+
+              const posterImg = document.createElement("img");
+              posterImg.className = "poster-img";
+              posterImg.src = movie.url;
+              posterImg.alt = movie.name;
+
+              posterLink.appendChild(posterImg);
+              postersDiv.appendChild(posterLink);
+            }
+          });
+
+          combinationDiv.appendChild(headerDiv);
+          combinationDiv.appendChild(postersDiv);
+
+          // Fans section
+          const fansSectionDiv = document.createElement("div");
+          fansSectionDiv.className = "fans-section";
+
+          if (fans.length === 0) {
+            const noFansDiv = document.createElement("div");
+            noFansDiv.className = "no-fans";
+            noFansDiv.textContent = "No matching users found";
+            fansSectionDiv.appendChild(noFansDiv);
+          } else {
+            const fansList = document.createElement("ul");
+            fansList.className = "fans-list";
+
+            fans.forEach((fan) => {
+              const fanItem = document.createElement("li");
+              fanItem.className = "fan-item";
+
+              const fanAvatar = document.createElement("img");
+              fanAvatar.className = "fan-avatar";
+              fanAvatar.src = fan.picture_link;
+              fanAvatar.alt = fan.name;
+
+              const fanLink = document.createElement("a");
+              fanLink.className = "fan-link";
+              fanLink.href = `https://letterboxd.com/${fan.username}/`;
+              fanLink.textContent = fan.name;
+
+              fanItem.appendChild(fanAvatar);
+              fanItem.appendChild(fanLink);
+              fansList.appendChild(fanItem);
+            });
+
+            fansSectionDiv.appendChild(fansList);
+          }
+
+          combinationDiv.appendChild(fansSectionDiv);
+          return combinationDiv;
+        }
+
+        function generateCombinations(set) {
+          const combinations = [];
+          const combination = [];
+
+          function backtrack(start) {
+            if (combination.length >= 2) {
+              combinations.push([...combination]);
+            }
+
+            for (let i = start; i < set.size; i++) {
+              combination.push(Array.from(set)[i]);
+              backtrack(i + 1);
+              combination.pop();
+            }
+          }
+
+          backtrack(0);
+          return combinations;
+        }
+
+        function showError(message) {
+          loadingDiv.style.display = "none";
+          resultsContent.innerHTML = `<div class="error-message">${message}</div>`;
+          resultsDiv.style.display = "block";
+        }
       });
     </script>
-  </head>
-  <body cz-shortcut-listen="true">
-    <h1>Search for fans</h1>
-
-    <form method="POST" action="/all_fans">
-      <label for="username">Username:</label>
-      <input type="text" id="username" name="username" required="" />
-      <button type="submit">Search Fans</button>
-    </form>
-
-    <div id="loading" style="display: none">
-      <p>Loading results...</p>
-    </div>
-    <br />
-    <div id="results" style="display: none">
-      <h2>Search Results</h2>
-    </div>
   </body>
 </html>
