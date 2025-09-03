@@ -87,6 +87,62 @@ def make_request_with_basic_retry(url, is_ajax_call=False, max_retries=3, base_w
     raise requests.exceptions.RequestException(f"All retries failed for {url}")
 
 
+def get_actual_poster_url(film_slug, film_id=None):
+    """
+    Get the actual poster URL by constructing it from the film ID and slug.
+    The pattern is: https://a.ltrbxd.com/resized/film-poster/{digits}/{film_id}-{slug}-0-150-0-225-crop.jpg
+    """
+    if not film_id:
+        # If no film_id provided, try to get it from the film page
+        film_url = f"https://letterboxd.com/film/{film_slug}/"
+        try:
+            response = make_request_with_basic_retry(film_url, is_ajax_call=False)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Look for film ID in data attributes
+            film_id_elem = soup.find(attrs={'data-film-id': True})
+            if film_id_elem:
+                film_id = film_id_elem.get('data-film-id')
+            else:
+                logging.warning(f"POSTER_URL: No film ID found for {film_slug}")
+                return EMPTY_POSTER_URL
+                
+        except Exception as e:
+            logging.error(f"POSTER_URL: Error getting film ID for {film_slug}: {e}")
+            return EMPTY_POSTER_URL
+    
+    try:
+        # Construct poster URL using the correct pattern
+        film_id_str = str(film_id)
+        
+        # Split film ID into individual digits for the path (don't pad with zeros)
+        path_parts = '/'.join(film_id_str)
+        
+        # Try different slug variations for the poster URL
+        slug_variations = [
+            film_slug,  # Original slug (e.g., "burning-2018")
+            film_slug.split('-')[0] if '-' in film_slug else film_slug,  # First part only (e.g., "burning")
+        ]
+        
+        for slug_variant in slug_variations:
+            poster_url = f"https://a.ltrbxd.com/resized/film-poster/{path_parts}/{film_id}-{slug_variant}-0-150-0-225-crop.jpg"
+            
+            # Test if the URL works
+            test_response = requests.head(poster_url, timeout=5)
+            if test_response.status_code == 200:
+                logging.info(f"POSTER_URL: Found actual poster for {film_slug} using slug '{slug_variant}': {poster_url}")
+                return poster_url
+            else:
+                logging.debug(f"POSTER_URL: Slug '{slug_variant}' returned {test_response.status_code} for {film_slug}")
+        
+        logging.warning(f"POSTER_URL: No working poster URL found for {film_slug}")
+        return EMPTY_POSTER_URL
+            
+    except Exception as e:
+        logging.error(f"POSTER_URL: Error constructing poster URL for {film_slug}: {e}")
+        return EMPTY_POSTER_URL
+
+
 def scrape_letterboxd_favorites(username):
     """
     Scrapes favorite movies from the main profile page.
@@ -128,13 +184,10 @@ def scrape_letterboxd_favorites(username):
         for lazy_poster_div in favorite_film_items:
             film_slug = lazy_poster_div.get('data-item-slug')
             film_name = lazy_poster_div.get('data-item-name', 'Unknown Film')
-            poster_url_path = lazy_poster_div.get('data-poster-url', '')
+            film_id = lazy_poster_div.get('data-film-id')
             
-            # Construct full poster URL
-            if poster_url_path:
-                poster_url = f"https://letterboxd.com{poster_url_path}"
-            else:
-                poster_url = EMPTY_POSTER_URL
+            # Get actual poster URL using the film ID and slug
+            poster_url = get_actual_poster_url(film_slug, film_id)
             
             current_movie_details = {
                 'code': film_slug,
@@ -143,7 +196,7 @@ def scrape_letterboxd_favorites(username):
             }
             
             favorite_movies_details.append(current_movie_details)
-            logging.info(f"FAVORITES_DIRECT: Extracted {film_slug}: {film_name}")
+            logging.info(f"FAVORITES_DIRECT: Extracted {film_slug}: {film_name} -> {poster_url}")
             
         logging.info(f"FAVORITES_DIRECT: FINAL - Scraped {len(favorite_movies_details)} favorites for {username}. Data: {favorite_movies_details}")
         return favorite_movies_details
