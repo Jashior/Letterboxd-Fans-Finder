@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import logging
 import time
 import itertools
+import sys
 
 # Set up basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - TASKS.PY - %(message)s')
@@ -88,94 +89,70 @@ def make_request_with_basic_retry(url, is_ajax_call=False, max_retries=3, base_w
 
 def scrape_letterboxd_favorites(username):
     """
-    Scrapes favorite movies using the AJAX endpoint method.
-    First gets slugs from the main profile, then AJAX for each poster/name.
-    Uses differentiated rate limiting.
+    Scrapes favorite movies from the main profile page.
+    Updated to work with the new Letterboxd structure using React components.
+    No longer needs AJAX calls as all data is available in the main page.
     """
     profile_url = f'https://letterboxd.com/{username}/'
-    logging.info(f"FAVORITES_AJAX: Scraping profile for {username} to get favorite slugs: {profile_url}")
+    logging.info(f"FAVORITES_DIRECT: Scraping profile for {username}: {profile_url}")
     favorite_movies_details = []
 
     try:
-        # --- First, get the favorite film slugs from the main profile page (NORMAL rate limit) ---
+        # Get the main profile page
         profile_response = make_request_with_basic_retry(profile_url, is_ajax_call=False)
         profile_soup = BeautifulSoup(profile_response.content, 'html.parser')
 
+        # Find the favorites section
         poster_list_ul = None
-        favorites_section_heading = profile_soup.find('h2', class_='section-heading', string=lambda t: t and 'Favorite Films' in t.strip())
+        favorites_section_heading = profile_soup.find('h2', class_='section-heading', string=lambda t: t and 'Favorite' in t.strip())
         if favorites_section_heading:
             poster_list_ul = favorites_section_heading.find_next_sibling('ul', class_='poster-list')
         if not poster_list_ul: # Fallback selector
             poster_list_ul = profile_soup.select_one("section#favourites ul.poster-list")
 
         if not poster_list_ul:
-            logging.warning(f"FAVORITES_AJAX: No 'Favorite Films' poster list found for {username} on main page.")
+            logging.warning(f"FAVORITES_DIRECT: No 'Favorite Films' poster list found for {username} on main page.")
             return []
 
-        favorite_film_divs_from_profile = []
-        for film_li in poster_list_ul.find_all('li', class_='poster-container', recursive=False):
-            film_data_div = film_li.find('div', class_='really-lazy-load') 
-            if not film_data_div:
-                 film_data_div = film_li.find('div', class_='film-poster')
-            if film_data_div and film_data_div.get('data-film-slug'):
-                favorite_film_divs_from_profile.append(film_data_div)
+        # Find all favorite film items - updated for new structure
+        favorite_film_items = []
+        for film_li in poster_list_ul.find_all('li', class_='posteritem', recursive=False):
+            # Look for the React component with LazyPoster
+            lazy_poster_div = film_li.find('div', class_='react-component', attrs={'data-component-class': lambda x: x and 'LazyPoster' in x})
+            if lazy_poster_div and lazy_poster_div.get('data-item-slug'):
+                favorite_film_items.append(lazy_poster_div)
         
-        logging.info(f"FAVORITES_AJAX: Found {len(favorite_film_divs_from_profile)} favorite film slugs for {username}.")
+        logging.info(f"FAVORITES_DIRECT: Found {len(favorite_film_items)} favorite films for {username}.")
 
-        # --- Now, for each slug, make the AJAX call (AJAX rate limit) ---
-        for film_data_div in favorite_film_divs_from_profile:
-            film_slug = film_data_div.get('data-film-slug')
-            img_on_main_page = film_data_div.find('img', class_='image')
-            name_from_alt_on_main_page = img_on_main_page.get('alt', 'Unknown Film') if img_on_main_page else 'Unknown Film'
+        # Extract data from each favorite film
+        for lazy_poster_div in favorite_film_items:
+            film_slug = lazy_poster_div.get('data-item-slug')
+            film_name = lazy_poster_div.get('data-item-name', 'Unknown Film')
+            poster_url_path = lazy_poster_div.get('data-poster-url', '')
             
-            # Initialize with data from main page as fallback
-            current_movie_details = {'code': film_slug, 'name': name_from_alt_on_main_page, 'url': EMPTY_POSTER_URL}
-
-            if film_slug:
-                ajax_url = f"https://letterboxd.com/ajax/poster/film/{film_slug}/std/150x225/"
-                logging.info(f"FAVORITES_AJAX: Fetching poster details for {film_slug} from {ajax_url} (using AJAX rate limit)")
-                
-                try:
-                    poster_ajax_response = make_request_with_basic_retry(ajax_url, is_ajax_call=True) # AJAX call
-                    ajax_soup = BeautifulSoup(poster_ajax_response.content, 'html.parser')
-                    
-                    poster_div_in_ajax = ajax_soup.find('div', class_='film-poster') 
-                    if not poster_div_in_ajax:
-                         poster_div_in_ajax = ajax_soup.find('div', class_='react-component')
-
-                    if poster_div_in_ajax:
-                        img_tag_in_ajax = poster_div_in_ajax.find('img', class_='image')
-                        name_span_in_ajax = poster_div_in_ajax.find('span', class_='frame-title')
-
-                        actual_poster_url = img_tag_in_ajax.get('src') if img_tag_in_ajax else None
-                        film_name_from_ajax = name_span_in_ajax.text.strip() if name_span_in_ajax else None
-
-                        if film_name_from_ajax: # Prefer name from AJAX as it usually includes year
-                            current_movie_details['name'] = film_name_from_ajax
-                        if actual_poster_url: # Only update if AJAX call was successful for poster
-                            current_movie_details['url'] = actual_poster_url
-                            logging.info(f"FAVORITES_AJAX: Successfully got details for {film_slug} via AJAX.")
-                        else:
-                            logging.warning(f"FAVORITES_AJAX: Could not find poster URL in AJAX response for {film_slug}. Using fallback/empty.")
-                    else:
-                        logging.warning(f"FAVORITES_AJAX: Could not find main poster div in AJAX response for {film_slug}. Using fallback/empty details.")
-                
-                except requests.exceptions.RequestException as e_ajax:
-                    # If make_request_with_basic_retry fails after all retries, it will raise an exception
-                    logging.error(f"FAVORITES_AJAX: All retries failed for AJAX call for {film_slug}: {e_ajax}. Using fallback/empty details.")
-                except Exception as e_parse_ajax:
-                    logging.error(f"FAVORITES_AJAX: Error parsing AJAX response for {film_slug}: {e_parse_ajax}. Using fallback/empty details.")
-
-            favorite_movies_details.append(current_movie_details) # Append even if AJAX failed, using fallbacks
+            # Construct full poster URL
+            if poster_url_path:
+                poster_url = f"https://letterboxd.com{poster_url_path}"
+            else:
+                poster_url = EMPTY_POSTER_URL
             
-        logging.info(f"FAVORITES_AJAX: FINAL - Scraped {len(favorite_movies_details)} favorites for {username}. Data: {favorite_movies_details}")
+            current_movie_details = {
+                'code': film_slug,
+                'name': film_name,
+                'url': poster_url
+            }
+            
+            favorite_movies_details.append(current_movie_details)
+            logging.info(f"FAVORITES_DIRECT: Extracted {film_slug}: {film_name}")
+            
+        logging.info(f"FAVORITES_DIRECT: FINAL - Scraped {len(favorite_movies_details)} favorites for {username}. Data: {favorite_movies_details}")
         return favorite_movies_details
 
     except requests.exceptions.RequestException as e_profile:
-        logging.error(f"FAVORITES_AJAX: All retries failed for main profile for {username}: {e_profile}", exc_info=True)
+        logging.error(f"FAVORITES_DIRECT: All retries failed for main profile for {username}: {e_profile}", exc_info=True)
         return []
     except Exception as e_general:
-        logging.error(f"FAVORITES_AJAX: An unexpected error occurred for {username}: {e_general}", exc_info=True)
+        logging.error(f"FAVORITES_DIRECT: An unexpected error occurred for {username}: {e_general}", exc_info=True)
         return []
 
 
