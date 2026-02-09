@@ -9,7 +9,7 @@ import sys
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - TASKS.PY - %(message)s')
 
 # --- Rate Limiting and Retry Logic ---
-REQUESTS_PER_MINUTE_NORMAL = 60   # 1 request per second
+REQUESTS_PER_MINUTE_NORMAL = 30   # 1 request every 2 seconds
 REQUESTS_PER_MINUTE_AJAX = 20     # 1 request every 3 seconds
 SECONDS_PER_MINUTE = 60
 last_request_time_normal = 0
@@ -45,17 +45,14 @@ def rate_limit(is_ajax_call=False):
         last_request_time_normal = time.time()
 
 
-def make_request_with_basic_retry(url, is_ajax_call=False, max_retries=3, base_wait_seconds=15):
+def make_request_with_basic_retry(url, session, is_ajax_call=False, max_retries=3, base_wait_seconds=15):
     """
     Makes a request with appropriate rate limiting and basic retry logic for 429 errors.
     """
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
     for attempt in range(max_retries):
         rate_limit(is_ajax_call=is_ajax_call) # Pass the flag here
         try:
-            response = requests.get(url, headers=headers, timeout=20) # Increased timeout
+            response = session.get(url, timeout=20) # Increased timeout
             
             if response.status_code == 429:
                 # For 429, the wait time should be significant, especially for AJAX
@@ -77,6 +74,11 @@ def make_request_with_basic_retry(url, is_ajax_call=False, max_retries=3, base_w
             response.raise_for_status() 
             return response
         except requests.exceptions.RequestException as e:
+            # If we get a 403, it's a permanent block. Don't retry.
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 403:
+                logging.error(f"Request forbidden for {url} (403). Aborting. This is likely due to scraping a disallowed endpoint.")
+                raise # Re-raise immediately to fail the task.
+
             logging.error(f"Request failed for {url} (Attempt {attempt + 1}/{max_retries}): {e}")
             if attempt == max_retries - 1:
                 raise 
@@ -87,7 +89,7 @@ def make_request_with_basic_retry(url, is_ajax_call=False, max_retries=3, base_w
     raise requests.exceptions.RequestException(f"All retries failed for {url}")
 
 
-def get_actual_poster_url(film_slug, film_id=None):
+def get_actual_poster_url(film_slug, session, film_id=None):
     """
     Get the actual poster URL by constructing it from the film ID and slug.
     The pattern is: https://a.ltrbxd.com/resized/film-poster/{digits}/{film_id}-{slug}-0-150-0-225-crop.jpg
@@ -96,7 +98,7 @@ def get_actual_poster_url(film_slug, film_id=None):
         # If no film_id provided, try to get it from the film page
         film_url = f"https://letterboxd.com/film/{film_slug}/"
         try:
-            response = make_request_with_basic_retry(film_url, is_ajax_call=False)
+            response = make_request_with_basic_retry(film_url, session, is_ajax_call=False)
             soup = BeautifulSoup(response.content, 'html.parser')
             
             # Look for film ID in data attributes
@@ -128,7 +130,7 @@ def get_actual_poster_url(film_slug, film_id=None):
             poster_url = f"https://a.ltrbxd.com/resized/film-poster/{path_parts}/{film_id}-{slug_variant}-0-150-0-225-crop.jpg"
             
             # Test if the URL works
-            test_response = requests.head(poster_url, timeout=5)
+            test_response = session.head(poster_url, timeout=5)
             if test_response.status_code == 200:
                 logging.info(f"POSTER_URL: Found actual poster for {film_slug} using slug '{slug_variant}': {poster_url}")
                 return poster_url
@@ -143,7 +145,7 @@ def get_actual_poster_url(film_slug, film_id=None):
         return EMPTY_POSTER_URL
 
 
-def scrape_letterboxd_favorites(username):
+def scrape_letterboxd_favorites(username, session):
     """
     Scrapes favorite movies from the main profile page.
     Updated to work with the new Letterboxd structure using React components.
@@ -155,7 +157,7 @@ def scrape_letterboxd_favorites(username):
 
     try:
         # Get the main profile page
-        profile_response = make_request_with_basic_retry(profile_url, is_ajax_call=False)
+        profile_response = make_request_with_basic_retry(profile_url, session, is_ajax_call=False)
         profile_soup = BeautifulSoup(profile_response.content, 'html.parser')
 
         # Find the favorites section
@@ -187,7 +189,7 @@ def scrape_letterboxd_favorites(username):
             film_id = lazy_poster_div.get('data-film-id')
             
             # Get actual poster URL using the film ID and slug
-            poster_url = get_actual_poster_url(film_slug, film_id)
+            poster_url = get_actual_poster_url(film_slug, session, film_id)
             
             current_movie_details = {
                 'code': film_slug,
@@ -202,6 +204,8 @@ def scrape_letterboxd_favorites(username):
         return favorite_movies_details
 
     except requests.exceptions.RequestException as e_profile:
+        if hasattr(e_profile, 'response') and e_profile.response is not None and e_profile.response.status_code == 403:
+            raise e_profile
         logging.error(f"FAVORITES_DIRECT: All retries failed for main profile for {username}: {e_profile}", exc_info=True)
         return []
     except Exception as e_general:
@@ -209,7 +213,7 @@ def scrape_letterboxd_favorites(username):
         return []
 
 
-def scrape_letterboxd_fans(favorite_movie_slugs): # Changed arg to be more specific
+def scrape_letterboxd_fans(favorite_movie_slugs, session): # Changed arg to be more specific
     """
     Scrapes usernames, names, and profile picture links of Letterboxd users
     who are fans of the given list of movies. Uses NORMAL rate limit.
@@ -226,7 +230,7 @@ def scrape_letterboxd_fans(favorite_movie_slugs): # Changed arg to be more speci
     logging.debug(f"FANS_SEARCH: Search URL: {search_url}")
 
     try:
-        response = make_request_with_basic_retry(search_url, is_ajax_call=False) # NORMAL call
+        response = make_request_with_basic_retry(search_url, session, is_ajax_call=False) # NORMAL call
         soup = BeautifulSoup(response.content, 'html.parser')
         fan_results_li = soup.find_all('li', class_='search-result -person')
 
@@ -267,6 +271,8 @@ def scrape_letterboxd_fans(favorite_movie_slugs): # Changed arg to be more speci
         return fan_data_list, more_results_available_flag
 
     except requests.exceptions.RequestException as e:
+        if hasattr(e, 'response') and e.response is not None and e.response.status_code == 403:
+            raise e
         logging.error(f"FANS_SEARCH: All retries failed for search: {search_term} - {e}")
         return [], False
     except Exception as e_general_fans:
@@ -274,44 +280,52 @@ def scrape_letterboxd_fans(favorite_movie_slugs): # Changed arg to be more speci
         return [], False
 
 
-def get_fans_for_combinations(list_of_favorite_movie_dicts, username_to_exclude):
+def get_fans_for_combinations(list_of_favorite_movie_dicts, username_to_exclude, session):
     """
     Gets fans for all possible combinations of favorite movies, from 4 down to 2.
     Excludes the searching user (case-insensitive) and only includes fans in the largest combination they appear in.
     """
     fans_by_combo_size_dict = {}
     seen_fan_usernames_set = set() # To ensure a fan appears only in their largest matching combo
+    scraping_was_blocked = False # Flag to track if we hit any 403 errors
     
     # Ensure we have a list of slugs from the favorite movie dicts
     favorite_movie_slugs = [fav_dict['code'] for fav_dict in list_of_favorite_movie_dicts if isinstance(fav_dict, dict) and 'code' in fav_dict]
 
     if not favorite_movie_slugs:
         logging.warning("COMBINATIONS: No favorite movie slugs to make combinations from.")
-        return {}
+        return {}, False
 
     # Iterate from largest combinations (4) down to smallest (2)
     for combination_length in range(min(len(favorite_movie_slugs), 4), 1, -1): # Max 4, min 2
         fans_by_combo_size_dict[combination_length] = []
         
         for current_movie_slug_combination in itertools.combinations(favorite_movie_slugs, combination_length):
-            # scrape_letterboxd_fans uses NORMAL rate limit
-            fans_for_this_slug_combo, more_results_flag = scrape_letterboxd_fans(list(current_movie_slug_combination))
-            
-            if fans_for_this_slug_combo:
-                unique_new_fans_for_this_combo = []
-                for fan_dict in fans_for_this_slug_combo:
-                    fan_username = fan_dict.get('username', '').lower()
-                    if fan_username != username_to_exclude.lower() and fan_username not in seen_fan_usernames_set:
-                        unique_new_fans_for_this_combo.append(fan_dict)
-                        seen_fan_usernames_set.add(fan_username) # Add to global seen set
+            try:
+                # scrape_letterboxd_fans uses NORMAL rate limit
+                fans_for_this_slug_combo, more_results_flag = scrape_letterboxd_fans(list(current_movie_slug_combination), session)
+                
+                if fans_for_this_slug_combo:
+                    unique_new_fans_for_this_combo = []
+                    for fan_dict in fans_for_this_slug_combo:
+                        fan_username = fan_dict.get('username', '').lower()
+                        if fan_username != username_to_exclude.lower() and fan_username not in seen_fan_usernames_set:
+                            unique_new_fans_for_this_combo.append(fan_dict)
+                            seen_fan_usernames_set.add(fan_username) # Add to global seen set
 
-                if unique_new_fans_for_this_combo: # Only add if there are new, unique fans
-                    fans_by_combo_size_dict[combination_length].append({
-                        "movies": list(current_movie_slug_combination), 
-                        "fans": unique_new_fans_for_this_combo,
-                        "more_results": more_results_flag
-                    })
-    return fans_by_combo_size_dict
+                    if unique_new_fans_for_this_combo: # Only add if there are new, unique fans
+                        fans_by_combo_size_dict[combination_length].append({
+                            "movies": list(current_movie_slug_combination), 
+                            "fans": unique_new_fans_for_this_combo,
+                            "more_results": more_results_flag
+                        })
+            except requests.exceptions.RequestException as e:
+                # If a specific combination fails (e.g., 403), log it and continue to the next.
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 403:
+                    scraping_was_blocked = True
+                logging.error(f"COMBINATIONS: Failed to get fans for combo {current_movie_slug_combination}: {e}")
+                continue # Move to the next combination
+    return fans_by_combo_size_dict, scraping_was_blocked
 
 
 def get_all_fans_of_favorites(username):
@@ -321,20 +335,33 @@ def get_all_fans_of_favorites(username):
     Returns a dictionary with the fans, and a separate list of favorite movies.
     """
     logging.info(f"GET_ALL_FANS: Starting process for user: {username}")
-    # scrape_letterboxd_favorites uses differentiated rate limiting internally
-    list_of_favorite_movie_dicts = scrape_letterboxd_favorites(username)
+
+    # Create and prime a session for this task to handle cookies and appear more like a real browser
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    })
+    try:
+        logging.info("SESSION: Priming session with a visit to the homepage to get cookies.")
+        session.get("https://letterboxd.com/", timeout=15)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"SESSION: Failed to prime session, scraping may fail: {e}")
+        # We can continue, but it's a bad sign.
+
+    list_of_favorite_movie_dicts = scrape_letterboxd_favorites(username, session)
     
     if not list_of_favorite_movie_dicts:
         logging.warning(f"GET_ALL_FANS: No favorites found for {username}, cannot find fan combinations.")
-        return {'fans': {}, 'movies': []} 
+        return {'fans': {}, 'movies': [], 'scraping_error': False} 
 
     # get_fans_for_combinations calls scrape_letterboxd_fans (NORMAL rate limit)
-    fans_by_combination_dict = get_fans_for_combinations(list_of_favorite_movie_dicts, username) # Pass username to exclude
+    fans_by_combination_dict, scraping_was_blocked = get_fans_for_combinations(list_of_favorite_movie_dicts, username, session) # Pass username to exclude
     
     logging.info(f"GET_ALL_FANS: Finished process for user: {username}")
     return {
         'fans': fans_by_combination_dict,
-        'movies': list_of_favorite_movie_dicts # Ensure it's a list
+        'movies': list_of_favorite_movie_dicts, # Ensure it's a list
+        'scraping_error': scraping_was_blocked
     }
 
 

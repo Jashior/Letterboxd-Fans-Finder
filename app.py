@@ -51,9 +51,14 @@ def get_fans(job_id):
 @app.route('/results/<job_id>')
 def get_results(job_id):
     job = q.fetch_job(job_id)
+    if job is None:
+        return jsonify({'status': 'error', 'message': 'Job not found or expired.'}), 404
+
     if job.is_finished:
         result = job.result
         return jsonify({'status': 'finished', 'result': result})
+    elif job.is_failed:
+        return jsonify({'status': 'failed', 'message': 'The background task failed to execute.'})
     else:
         return jsonify({'status': job.get_status()})
     
