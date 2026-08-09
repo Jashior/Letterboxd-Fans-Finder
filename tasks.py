@@ -5,8 +5,37 @@ import time
 import itertools
 import sys
 
+try:
+    import cloudscraper
+except ImportError:
+    cloudscraper = None
+
+# Scraper-specific exceptions
+class LetterboxdScrapeBlocked(Exception):
+    pass
+
+class LetterboxdScrapeError(Exception):
+    pass
+
 # Set up basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - TASKS.PY - %(message)s')
+
+
+def create_letterboxd_session():
+    if cloudscraper:
+        session = cloudscraper.create_scraper()
+        logging.info('SESSION: Using cloudscraper to bypass Cloudflare challenges.')
+    else:
+        session = requests.Session()
+        logging.info('SESSION: cloudscraper missing, using plain requests.Session. This may be blocked by Cloudflare.')
+
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://letterboxd.com/',
+    })
+    return session
 
 # --- Rate Limiting and Retry Logic ---
 REQUESTS_PER_MINUTE_NORMAL = 30   # 1 request every 2 seconds
@@ -53,7 +82,18 @@ def make_request_with_basic_retry(url, session, is_ajax_call=False, max_retries=
         rate_limit(is_ajax_call=is_ajax_call) # Pass the flag here
         try:
             response = session.get(url, timeout=20) # Increased timeout
-            
+
+            # Detect Cloudflare challenge pages that may still return HTML instead of JSON/real content.
+            if response.status_code == 200 and isinstance(response.text, str):
+                body_snippet = response.text[:1200].lower()
+                if 'just a moment' in body_snippet and 'cloudflare' in body_snippet:
+                    logging.warning(f"CHALLENGE_DETECTED: Cloudflare challenge returned for {url}")
+                    raise LetterboxdScrapeBlocked(f"Cloudflare challenge page detected for {url}")
+
+            if response.status_code == 403:
+                logging.warning(f"REQUEST_FORBIDDEN: Received 403 for {url}")
+                raise LetterboxdScrapeBlocked(f"Letterboxd returned 403 for {url}")
+
             if response.status_code == 429:
                 # For 429, the wait time should be significant, especially for AJAX
                 wait_time_multiplier = 2 if is_ajax_call else 1
@@ -73,12 +113,9 @@ def make_request_with_basic_retry(url, session, is_ajax_call=False, max_retries=
 
             response.raise_for_status() 
             return response
+        except LetterboxdScrapeBlocked:
+            raise
         except requests.exceptions.RequestException as e:
-            # If we get a 403, it's a permanent block. Don't retry.
-            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 403:
-                logging.error(f"Request forbidden for {url} (403). Aborting. This is likely due to scraping a disallowed endpoint.")
-                raise # Re-raise immediately to fail the task.
-
             logging.error(f"Request failed for {url} (Attempt {attempt + 1}/{max_retries}): {e}")
             if attempt == max_retries - 1:
                 raise 
@@ -160,25 +197,22 @@ def scrape_letterboxd_favorites(username, session):
         profile_response = make_request_with_basic_retry(profile_url, session, is_ajax_call=False)
         profile_soup = BeautifulSoup(profile_response.content, 'html.parser')
 
-        # Find the favorites section
-        poster_list_ul = None
-        favorites_section_heading = profile_soup.find('h2', class_='section-heading', string=lambda t: t and 'Favorite' in t.strip())
-        if favorites_section_heading:
-            poster_list_ul = favorites_section_heading.find_next_sibling('ul', class_='poster-list')
-        if not poster_list_ul: # Fallback selector
-            poster_list_ul = profile_soup.select_one("section#favourites ul.poster-list")
+        # Find the favorites section with the current Letterboxd markup.
+        favorites_section = profile_soup.select_one('section#favourites')
+        if not favorites_section:
+            favorites_section_heading = profile_soup.find('h2', class_='section-heading', string=lambda t: t and 'Favorite' in t.strip())
+            if favorites_section_heading:
+                favorites_section = favorites_section_heading.find_parent('section')
 
-        if not poster_list_ul:
-            logging.warning(f"FAVORITES_DIRECT: No 'Favorite Films' poster list found for {username} on main page.")
+        if not favorites_section:
+            logging.warning(f"FAVORITES_DIRECT: No 'Favorite Films' section found for {username} on main page.")
             return []
 
-        # Find all favorite film items - updated for new structure
-        favorite_film_items = []
-        for film_li in poster_list_ul.find_all('li', class_='posteritem', recursive=False):
-            # Look for the React component with LazyPoster
-            lazy_poster_div = film_li.find('div', class_='react-component', attrs={'data-component-class': lambda x: x and 'LazyPoster' in x})
-            if lazy_poster_div and lazy_poster_div.get('data-item-slug'):
-                favorite_film_items.append(lazy_poster_div)
+        favorite_film_items = favorites_section.select("div.react-component[data-component-class*='LazyPoster'][data-item-slug]")
+
+        if not favorite_film_items:
+            logging.warning(f"FAVORITES_DIRECT: No favorite film items found for {username} in favorites section.")
+            return []
         
         logging.info(f"FAVORITES_DIRECT: Found {len(favorite_film_items)} favorite films for {username}.")
 
@@ -187,10 +221,14 @@ def scrape_letterboxd_favorites(username, session):
             film_slug = lazy_poster_div.get('data-item-slug')
             film_name = lazy_poster_div.get('data-item-name', 'Unknown Film')
             film_id = lazy_poster_div.get('data-film-id')
-            
-            # Get actual poster URL using the film ID and slug
-            poster_url = get_actual_poster_url(film_slug, session, film_id)
-            
+            poster_path = lazy_poster_div.get('data-poster-url')
+
+            # Prefer the poster URL returned directly in the profile markup.
+            if poster_path and poster_path.startswith('/'):
+                poster_url = f"https://letterboxd.com{poster_path}"
+            else:
+                poster_url = get_actual_poster_url(film_slug, session, film_id)
+
             current_movie_details = {
                 'code': film_slug,
                 'name': film_name,
@@ -203,9 +241,9 @@ def scrape_letterboxd_favorites(username, session):
         logging.info(f"FAVORITES_DIRECT: FINAL - Scraped {len(favorite_movies_details)} favorites for {username}. Data: {favorite_movies_details}")
         return favorite_movies_details
 
+    except LetterboxdScrapeBlocked:
+        raise
     except requests.exceptions.RequestException as e_profile:
-        if hasattr(e_profile, 'response') and e_profile.response is not None and e_profile.response.status_code == 403:
-            raise e_profile
         logging.error(f"FAVORITES_DIRECT: All retries failed for main profile for {username}: {e_profile}", exc_info=True)
         return []
     except Exception as e_general:
@@ -240,25 +278,27 @@ def scrape_letterboxd_fans(favorite_movie_slugs, session): # Changed arg to be m
 
         fan_data_list = []
         for result_li in fan_results_li:
-            username_link_a = result_li.find('a', class_='name')
-            if username_link_a:
-                name_h3 = username_link_a.find_parent('h3')
-                name = "Unknown Name"
-                if name_h3:
-                    name = name_h3.text.strip()
-                    for tag in ("Pro", "Patron", "Crew"): 
-                        name = name.replace(f" {tag}", "")
+                username_link_a = result_li.select_one('a.name')
+                if not username_link_a:
+                    continue
 
-                username_small_element = result_li.find('div', class_='person-summary -search').find('small', class_='metadata')
-                username = "unknown_user" 
-                if username_small_element:
-                    username = username_small_element.text.strip()
+                name = username_link_a.text.strip()
+                for tag in ("Pro", "Patron", "Crew"):
+                    if name.endswith(f" {tag}"):
+                        name = name[: -len(tag) - 1].strip()
 
-                picture_img_tag = result_li.find('img')
-                picture_link_url = None 
+                summary_div = result_li.select_one('div.person-summary.-search')
+                username = "unknown_user"
+                if summary_div:
+                    username_small_element = summary_div.select_one('small.metadata')
+                    if username_small_element:
+                        username = username_small_element.text.strip()
+
+                picture_img_tag = result_li.select_one('img')
+                picture_link_url = None
                 if picture_img_tag:
-                    picture_link_url = picture_img_tag.get('src') # Use .get() to avoid KeyError if 'src' is missing
-                
+                    picture_link_url = picture_img_tag.get('data-src') or picture_img_tag.get('src')
+
                 fan_data_list.append({
                     'username': username,
                     'name': name,
@@ -266,13 +306,11 @@ def scrape_letterboxd_fans(favorite_movie_slugs, session): # Changed arg to be m
                 })
 
         more_results_available_flag = len(fan_data_list) == 20 # Heuristic for pagination
-
         logging.info(f"FANS_SEARCH: Scraped {len(fan_data_list)} fans for movies: {favorite_movie_slugs}")
         return fan_data_list, more_results_available_flag
-
+    except LetterboxdScrapeBlocked:
+        raise
     except requests.exceptions.RequestException as e:
-        if hasattr(e, 'response') and e.response is not None and e.response.status_code == 403:
-            raise e
         logging.error(f"FANS_SEARCH: All retries failed for search: {search_term} - {e}")
         return [], False
     except Exception as e_general_fans:
@@ -319,10 +357,11 @@ def get_fans_for_combinations(list_of_favorite_movie_dicts, username_to_exclude,
                             "fans": unique_new_fans_for_this_combo,
                             "more_results": more_results_flag
                         })
+            except LetterboxdScrapeBlocked as e:
+                scraping_was_blocked = True
+                logging.error(f"COMBINATIONS: Scraping blocked for combo {current_movie_slug_combination}: {e}")
+                continue
             except requests.exceptions.RequestException as e:
-                # If a specific combination fails (e.g., 403), log it and continue to the next.
-                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 403:
-                    scraping_was_blocked = True
                 logging.error(f"COMBINATIONS: Failed to get fans for combo {current_movie_slug_combination}: {e}")
                 continue # Move to the next combination
     return fans_by_combo_size_dict, scraping_was_blocked
@@ -336,11 +375,8 @@ def get_all_fans_of_favorites(username):
     """
     logging.info(f"GET_ALL_FANS: Starting process for user: {username}")
 
-    # Create and prime a session for this task to handle cookies and appear more like a real browser
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    })
+    # Create and prime a session for this task to handle cookies and appear more like a real browser.
+    session = create_letterboxd_session()
     try:
         logging.info("SESSION: Priming session with a visit to the homepage to get cookies.")
         session.get("https://letterboxd.com/", timeout=15)
@@ -348,21 +384,33 @@ def get_all_fans_of_favorites(username):
         logging.error(f"SESSION: Failed to prime session, scraping may fail: {e}")
         # We can continue, but it's a bad sign.
 
-    list_of_favorite_movie_dicts = scrape_letterboxd_favorites(username, session)
-    
+    try:
+        list_of_favorite_movie_dicts = scrape_letterboxd_favorites(username, session)
+    except LetterboxdScrapeBlocked as e:
+        logging.error(f"GET_ALL_FANS: Scraping blocked for {username}: {e}")
+        return {'fans': {}, 'movies': [], 'scraping_error': True, 'error': str(e)}
+    except Exception as e:
+        logging.error(f"GET_ALL_FANS: Unexpected error scraping favorites for {username}: {e}", exc_info=True)
+        return {'fans': {}, 'movies': [], 'scraping_error': True, 'error': 'Favorite scraping failed.'}
+
     if not list_of_favorite_movie_dicts:
         logging.warning(f"GET_ALL_FANS: No favorites found for {username}, cannot find fan combinations.")
-        return {'fans': {}, 'movies': [], 'scraping_error': False} 
+        return {'fans': {}, 'movies': [], 'scraping_error': False}
 
     # get_fans_for_combinations calls scrape_letterboxd_fans (NORMAL rate limit)
     fans_by_combination_dict, scraping_was_blocked = get_fans_for_combinations(list_of_favorite_movie_dicts, username, session) # Pass username to exclude
     
-    logging.info(f"GET_ALL_FANS: Finished process for user: {username}")
-    return {
+    result = {
         'fans': fans_by_combination_dict,
         'movies': list_of_favorite_movie_dicts, # Ensure it's a list
         'scraping_error': scraping_was_blocked
     }
+
+    if scraping_was_blocked:
+        result['warning'] = 'Letterboxd blocked or limited one or more fan searches. Results may be incomplete.'
+
+    logging.info(f"GET_ALL_FANS: Finished process for user: {username}")
+    return result
 
 
 if __name__ == "__main__":

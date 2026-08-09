@@ -140,11 +140,28 @@
         function handleFinishedJob(result) {
             const fansAreEmpty = isFanResultEmpty(result.fans);
 
+            if (result.error) {
+                displayError(
+                    'An error occurred while fetching results from Letterboxd.',
+                    result.error
+                );
+                return;
+            }
+
+            if (result.warning) {
+                statusContainer.innerHTML = `
+                    <div class="alert alert-warning text-center">
+                        <strong>Partial results</strong><br>
+                        ${result.warning}
+                    </div>
+                `;
+            }
+
             if (fansAreEmpty && result.scraping_error) {
                 // Case 1: Empty results BECAUSE of a scraping error
                 displayError(
                     'An error occurred while fetching results from Letterboxd.',
-                    'This can happen due to rate-limiting. Please try again in a few minutes.'
+                    'This can happen due to rate-limiting, Cloudflare blocking, or a change in Letterboxd markup. Please try again later.'
                 );
             } else if (fansAreEmpty) {
                 // Case 2: Empty results because no one matched
