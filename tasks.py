@@ -1,4 +1,7 @@
+import os
 import requests
+import json
+import random
 from bs4 import BeautifulSoup
 import logging
 import time
@@ -9,6 +12,18 @@ try:
     import cloudscraper
 except ImportError:
     cloudscraper = None
+
+try:
+    import curl_cffi.requests as curl_requests
+except Exception:
+    curl_requests = None
+
+LETTERBOXD_PROXY_URL = os.getenv('LETTERBOXD_PROXY_URL')
+COOKIE_JAR_PATH = os.path.join(os.path.dirname(__file__), 'cookie_jar.json')
+
+# Jitter configuration (seconds). Can be overridden via env vars.
+JITTER_MIN = float(os.getenv('LB_JITTER_MIN', '1.0'))
+JITTER_MAX = float(os.getenv('LB_JITTER_MAX', '5.0'))
 
 # Scraper-specific exceptions
 class LetterboxdScrapeBlocked(Exception):
@@ -30,11 +45,46 @@ def create_letterboxd_session():
         session.trust_env = False
         logging.info('SESSION: cloudscraper missing, using plain requests.Session. This may be blocked by Cloudflare.')
 
+    # A more realistic header set to reduce fingerprinting signals
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://letterboxd.com/',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-CH-UA': '"Chromium";v="120", "Not:A-Brand";v="99"',
+        'Sec-CH-UA-Platform': '"Windows"',
+        'Sec-CH-UA-Mobile': '?0',
+        'Upgrade-Insecure-Requests': '1',
     })
+
+    # Load persisted cookies (if any) so we reuse cf_clearance across runs
+    try:
+        load_cookies_into_session(session, COOKIE_JAR_PATH)
+        logging.info('SESSION: Loaded persisted cookies (if present).')
+    except Exception:
+        logging.debug('SESSION: No cookie jar loaded (or failed to load).')
     return session
+
+
+def save_session_cookies(session, path=COOKIE_JAR_PATH):
+    try:
+        cookies_dict = requests.utils.dict_from_cookiejar(session.cookies)
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(cookies_dict, fh)
+        logging.info(f'SESSION: Saved {len(cookies_dict)} cookies to {path}')
+    except Exception as e:
+        logging.warning(f'SESSION: Failed to save cookies to {path}: {e}')
+
+
+def load_cookies_into_session(session, path=COOKIE_JAR_PATH):
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            cookies_dict = json.load(fh)
+        session.cookies.update(cookies_dict)
+    except Exception as e:
+        logging.warning(f'SESSION: Failed to load cookies from {path}: {e}')
 
 # --- Rate Limiting and Retry Logic ---
 REQUESTS_PER_MINUTE_NORMAL = 30   # 1 request every 2 seconds
@@ -61,11 +111,17 @@ def rate_limit(is_ajax_call=False):
     current_time = time.time()
     time_since_last_request = current_time - last_request_time_ref
     required_delay = SECONDS_PER_MINUTE / requests_per_minute_ref
+    # Add randomized jitter to make timing less uniform
+    jitter = random.uniform(JITTER_MIN, JITTER_MAX)
 
     if time_since_last_request < required_delay:
-        sleep_time = required_delay - time_since_last_request
-        logging.info(f"{log_prefix}: Sleeping for {sleep_time:.2f} seconds")
+        sleep_time = (required_delay - time_since_last_request) + jitter
+        logging.info(f"{log_prefix}: Sleeping for {sleep_time:.2f} seconds (including {jitter:.2f}s jitter)")
         time.sleep(sleep_time)
+    else:
+        # Even if we're past the required delay, add a small jitter to avoid fixed intervals
+        logging.info(f"{log_prefix}: No required delay, sleeping jitter {jitter:.2f}s")
+        time.sleep(jitter)
     
     if is_ajax_call:
         last_request_time_ajax = time.time()
@@ -73,14 +129,22 @@ def rate_limit(is_ajax_call=False):
         last_request_time_normal = time.time()
 
 
-def make_request_with_basic_retry(url, session, is_ajax_call=False, max_retries=3, base_wait_seconds=15):
+def _build_proxy_dict(proxy_url):
+    if not proxy_url:
+        return None
+    return {'http': proxy_url, 'https': proxy_url}
+
+
+def make_request_with_basic_retry(url, session, is_ajax_call=False, max_retries=3, base_wait_seconds=15, proxy_url=LETTERBOXD_PROXY_URL, proxy_attempted=False):
     """
     Makes a request with appropriate rate limiting and basic retry logic for 429 errors.
     """
+    tried_curl = False
     for attempt in range(max_retries):
         rate_limit(is_ajax_call=is_ajax_call) # Pass the flag here
         try:
-            response = session.get(url, timeout=20) # Increased timeout
+            proxies = _build_proxy_dict(proxy_url) if proxy_attempted else None
+            response = session.get(url, timeout=20, proxies=proxies) # Increased timeout
 
             # Detect Cloudflare challenge pages that may still return HTML instead of JSON/real content.
             if response.status_code == 200 and isinstance(response.text, str):
@@ -91,6 +155,17 @@ def make_request_with_basic_retry(url, session, is_ajax_call=False, max_retries=
 
             if response.status_code == 403:
                 logging.warning(f"REQUEST_FORBIDDEN: Received 403 for {url}")
+                if proxy_url and not proxy_attempted:
+                    logging.info(f"PROXY_FALLBACK: Retrying {url} via proxy {proxy_url}")
+                    return make_request_with_basic_retry(
+                        url,
+                        session,
+                        is_ajax_call=is_ajax_call,
+                        max_retries=max_retries,
+                        base_wait_seconds=base_wait_seconds,
+                        proxy_url=proxy_url,
+                        proxy_attempted=True,
+                    )
                 raise LetterboxdScrapeBlocked(f"Letterboxd returned 403 for {url}")
 
             if response.status_code == 429:
@@ -116,6 +191,22 @@ def make_request_with_basic_retry(url, session, is_ajax_call=False, max_retries=
             raise
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed for {url} (Attempt {attempt + 1}/{max_retries}): {e}")
+
+            # Try curl_cffi as a fallback once if available — it provides a more realistic TLS/HTTP2 fingerprint
+            if curl_requests and not tried_curl:
+                tried_curl = True
+                try:
+                    logging.info(f"FALLBACK: Trying curl_cffi for {url}")
+                    proxies = _build_proxy_dict(proxy_url) if proxy_attempted else None
+                    curl_resp = curl_requests.get(url, timeout=20, proxies=proxies, headers=session.headers)
+                    if curl_resp.status_code == 200:
+                        logging.info(f"FALLBACK: curl_cffi request succeeded for {url}")
+                        return curl_resp
+                    else:
+                        logging.warning(f"FALLBACK: curl_cffi returned {curl_resp.status_code} for {url}")
+                except Exception as e_curl:
+                    logging.warning(f"FALLBACK: curl_cffi request failed for {url}: {e_curl}")
+
             if attempt == max_retries - 1:
                 raise 
             # Shorter sleep for general network issues, but still with some backoff
@@ -165,8 +256,17 @@ def get_actual_poster_url(film_slug, session, film_id=None):
         for slug_variant in slug_variations:
             poster_url = f"https://a.ltrbxd.com/resized/film-poster/{path_parts}/{film_id}-{slug_variant}-0-150-0-225-crop.jpg"
             
-            # Test if the URL works
-            test_response = session.head(poster_url, timeout=5)
+            # Test if the URL works. Set Referer to the film page for a more realistic request.
+            old_referer = session.headers.get('Referer')
+            session.headers['Referer'] = f'https://letterboxd.com/film/{film_slug}/'
+            try:
+                test_response = session.head(poster_url, timeout=5)
+            finally:
+                # Restore original referer
+                if old_referer is not None:
+                    session.headers['Referer'] = old_referer
+                else:
+                    session.headers.pop('Referer', None)
             if test_response.status_code == 200:
                 logging.info(f"POSTER_URL: Found actual poster for {film_slug} using slug '{slug_variant}': {poster_url}")
                 return poster_url
@@ -378,7 +478,10 @@ def get_all_fans_of_favorites(username):
     session = create_letterboxd_session()
     try:
         logging.info("SESSION: Priming session with a visit to the homepage to get cookies.")
-        session.get("https://letterboxd.com/", timeout=15)
+        # Use the resilient request wrapper so retries, rate-limiting and fallbacks apply
+        make_request_with_basic_retry("https://letterboxd.com/", session, is_ajax_call=False)
+        # Persist cookies for reuse across runs (cf_clearance)
+        save_session_cookies(session)
     except requests.exceptions.RequestException as e:
         logging.error(f"SESSION: Failed to prime session, scraping may fail: {e}")
         # We can continue, but it's a bad sign.
